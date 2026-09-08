@@ -53,6 +53,7 @@ from redsun.containers.components import (
     _ViewField,
     expects_positionals,
 )
+from redsun.device.protocols import HasAsyncShutdown
 from redsun.log import set_level
 from redsun.presenter import PPresenter
 from redsun.view import PView
@@ -1013,9 +1014,10 @@ class AppContainer:
 
         1. ``_disconnect`` - undo the wiring.
         2. ``_shutdown_presenters`` - shut every presenter down.
-        3. ``_shutdown_hooks`` - undo what the hook providers installed.
-        4. ``_release_components`` - drop every built component.
-        5. ``_destroy`` - end what dropping a reference does not end.
+        3. ``_shutdown_devices`` - await every asynchronous device shutdown.
+        4. ``_shutdown_hooks`` - undo what the hook providers installed.
+        5. ``_release_components`` - drop every built component.
+        6. ``_destroy`` - end what dropping a reference does not end.
 
         Afterwards the container holds nothing it built, so ``devices``,
         ``presenters`` and ``views`` raise until the next ``build()``.
@@ -1025,6 +1027,7 @@ class AppContainer:
 
         self._disconnect()
         self._shutdown_presenters()
+        self._shutdown_devices()
         # after the components, which may still be using what a hook installed
         self._shutdown_hooks()
         self._destroy(self._release_components())
@@ -1049,6 +1052,25 @@ class AppContainer:
                 except Exception as e:  # noqa: BLE001 - one failed shutdown must not block the rest
                     logger.error(f"Error shutting down presenter '{name}': {e}")
 
+    def _shutdown_devices(self) -> None:
+        """Await every device implementing ``HasAsyncShutdown``.
+
+        Presenters are stopped first so they cannot issue new device commands.
+        One device failing to shut down is logged and does not prevent the
+        remaining devices from releasing their resources.
+        """
+
+        async def _shutdown_all() -> None:
+            devices = reversed(tuple(self._built_devices.items()))
+            for name, device in devices:
+                if isinstance(device, HasAsyncShutdown):
+                    try:
+                        await device.shutdown()
+                    except Exception as e:  # noqa: BLE001 - continue remaining cleanup
+                        logger.error(f"Error shutting down device '{name}': {e}")
+
+        run_coro(_shutdown_all())
+
     def _release_components(self) -> Sequence[object]:
         """Drop every built component, and return what was dropped.
 
@@ -1061,6 +1083,7 @@ class AppContainer:
         self._built.clear()
         self._failed.clear()
         self._built_devices = {}
+        self._devices_connected = False
         return released
 
     def _destroy(self, components: Sequence[object]) -> None:

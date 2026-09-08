@@ -31,7 +31,7 @@ from redsun.containers.components import (
     _PresenterComponent,
     _ViewComponent,
 )
-from redsun.presenter import PPresenter
+from redsun.presenter import PPresenter, Presenter
 from redsun.presenter.builtins import StoragePresenter
 from redsun.qt import QtAppContainer
 from redsun.storage import PATH_PROVIDER
@@ -39,7 +39,7 @@ from redsun.view import PView, ViewPosition
 from redsun.virtual import RedSunConfig, WiringError, ports
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Mapping
 
 
 class TestComponentWrappers:
@@ -248,6 +248,46 @@ class TestAppContainerBuild:
     def test_shutdown_noop_when_not_built(self) -> None:
         app = AppContainer()
         app.shutdown()  # should not raise
+
+    def test_shutdown_stops_presenters_then_all_async_devices(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        events: list[str] = []
+
+        class LifecycleDevice(Device):
+            def __init__(
+                self, name: str, /, *, label: str, fails: bool = False
+            ) -> None:
+                super().__init__(name=name)
+                self.label = label
+                self.fails = fails
+
+            async def shutdown(self) -> None:
+                events.append(f"device:{self.label}")
+                if self.fails:
+                    raise RuntimeError(f"{self.label} failed")
+
+        class LifecyclePresenter(Presenter):
+            def __init__(self, name: str, devices: Mapping[str, Device], /) -> None:
+                super().__init__(name, devices)
+
+            def shutdown(self) -> None:
+                events.append("presenter")
+
+        class TestApp(AppContainer):
+            first = declare_device(LifecycleDevice, label="first")
+            failing = declare_device(LifecycleDevice, label="failing", fails=True)
+            lifecycle = declare_presenter(LifecyclePresenter)
+
+        app = TestApp().build()
+        app.connect_devices(mock=True)
+        with caplog.at_level(logging.ERROR, logger="redsun"):
+            app.shutdown()
+
+        assert events[0] == "presenter"
+        assert set(events[1:]) == {"device:first", "device:failing"}
+        assert "Error shutting down device 'failing': failing failed" in caplog.text
+        assert not app._devices_connected
 
     @pytest.mark.qt
     def test_shutdown_drops_what_it_built(self, qapp: QApplication) -> None:

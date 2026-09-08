@@ -76,7 +76,14 @@ zarr = [
     "acquire-zarr>=0.9.0",
 ]
 
+epics = [
+    "ophyd-async[ca]>=0.21.2",
+]
+
 [project.optional-dependencies]
+epics = [
+    "ophyd-async[ca]>=0.21.2",
+]
 zarr = [
     "acquire-zarr>=0.8.1",
 ]
