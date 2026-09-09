@@ -8,6 +8,12 @@ from ._base import (
     StoreStateError,
     StreamSpec,
 )
+from ._multidim import (
+    FramePlacement,
+    IndexedWrite,
+    MultidimensionalOpenStore,
+    PersistedWrite,
+)
 from ._path_provider import PathSignals, SessionPathProvider
 from ._registry import clear_registry, get_storage, register_storage, reset_group
 from ._sink import FrameSink
@@ -18,9 +24,13 @@ PATH_PROVIDER = dip.Dependency(instance_of=SessionPathProvider)
 __all__ = [
     "PATH_PROVIDER",
     "BaseStorage",
+    "FramePlacement",
     "FrameSink",
+    "IndexedWrite",
+    "MultidimensionalOpenStore",
     "OpenStore",
     "PathSignals",
+    "PersistedWrite",
     "SessionPathProvider",
     "SinkFactory",
     "StorageIO",
